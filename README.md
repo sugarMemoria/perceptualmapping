@@ -11,7 +11,7 @@ This project is designed to practice the perceptual mapping and multidimensional
 5. Build MDS plot
 
 ## Sample Result
-![image](https://user-images.githubusercontent.com/33971367/110268821-526faa00-7f90-11eb-8679-79baff737c8b.png | width=250)
+<img src="https://user-images.githubusercontent.com/33971367/110268821-526faa00-7f90-11eb-8679-79baff737c8b.png" width="672" height="480">
 
 ## Data Source
 https://nijianmo.github.io/amazon/index.html
