@@ -10,5 +10,8 @@ This project is designed to practice the perceptual mapping and multidimensional
 4. Based on lift, build a dis-similarity matrix
 5. Build MDS plot
 
+## Sample Result
+![image](https://user-images.githubusercontent.com/33971367/110268821-526faa00-7f90-11eb-8679-79baff737c8b.png)
+
 ## Data Source
 https://nijianmo.github.io/amazon/index.html
