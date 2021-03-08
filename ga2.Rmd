@@ -1,0 +1,283 @@
+---
+title: "Group 17 Group assignment 2"
+output:
+  html_document:
+    df_print: paged
+---
+
+Understand our goal - content map
+
+perceptual mapping (final product) <- multidimensional scaling <- dissimilarity matrix <- similarity matrix <- co-occurence and lift
+
+# Load libraries
+
+```{r, message=FALSE, warning=FALSE}
+library(jsonlite)
+
+library(tidyverse)
+library(skimr)
+library(janitor)
+
+# library(itertools)
+library(openxlsx)
+
+library(ggplot2)
+library(ggrepel)
+```
+
+# Read Data
+
+data1 -> 5 core
+data2 -> full reviews data
+data3 -> full metadata
+
+```{r, message=FALSE, warning=FALSE}
+data1 <- stream_in(file("Software_5.json")) %>% clean_names()
+
+
+data2 <- stream_in(file("Software.json")) %>% clean_names()
+# reviews <- data[,c(1:10)] # get only the first ten variables
+
+data3 <- stream_in(file("meta_Software.json")) %>% clean_names()
+```
+
+# Clean data3
+
+there are some brand patterns like "by \n \n [real name]" - we need to get rid of those
+
+```{r clean data3}
+
+data3$brand <- str_replace(data3$brand,"by","")
+data3$brand <- str_replace(data3$brand,"[\\n]","")
+data3$brand <- str_replace(data3$brand,"[\\n]","")
+data3$brand <- str_trim(data3$brand)
+
+```
+
+
+# Analysis
+
+I tried on the sample first, now we merge data3 with the real full data
+remove some na
+
+```{r merge the data}
+merged1 <- merge(data2, data3, by='asin') %>% drop_na("brand","review_text")
+
+# merged1_c <- merged1 %>%
+#   select(asin, brand, review_text)
+```
+
+## Pick top 30 brands
+
+```{r}
+
+top30 <- merged1 %>%
+  clean_names() %>%
+  group_by(brand) %>%
+  summarize(n=n()) %>%
+  ungroup() %>%
+  arrange(desc(n)) %>%
+  top_n(31)
+
+top30 <- as.list(top30$brand)
+top30 <- top30[-22]
+
+```
+
+## analyze the cooccurrences of top 30
+
+if we want to find brand A, then we need filter brand='A', then find any non-A brands in review-text
+
+try and build a starting point here
+
+*readme*
+1. str_count would count multiple times the same word - if we are taking semantics into account, multiple mentions means strong cooccurrence and it makes sense. Otherwide we need to use sum(str_detect)
+2. about the brands list, normally people wouldn't type "Amazon Digital Services LLC" out entirely, so we need to make some editing for some brands
+
+**changelog**
+Amazon Digital Service LLC -> Amazon
+AVAST Software s.r.o -> Avast
+Nova Development US -> Nova
+
+```{r}
+# simplify brand name for some
+top30[4] <- "Amazon"
+top30[12] <- "Nova"
+top30[16] <- "Avast"
+top30[23] <- "Smith"
+top30[28] <- "Parallels"
+```
+
+
+```{r}
+
+# first find reviews under the top 30 brands
+count <- c()
+brand1 <- c()
+brand2 <- c()
+for (i in top30) {
+  filter1 <- merged1 %>%
+    filter(brand==i) %>%
+    select(brand,review_text)
+  
+  
+  for (j in top30) {
+    cooc <- sum(str_count(filter1$review_text,j))
+    count <- append(count, cooc)
+    
+    brand1 <- append(brand1, i)
+    brand2 <- append(brand2, j)
+    
+  }
+  
+}
+result <- cbind.data.frame(brand1, brand2, count)
+print(result)
+
+matrix1 <- pivot_wider(result, id_cols = brand1, names_from = brand2, values_from = count)
+write.xlsx(matrix1,"matrix1.xlsx", asTable = T)
+```
+
+The problem with the previous results is,
+the occurrence for (A,B) is the same as (B,A) - so we need to add them up together; that's the *+ side*
+
+however, in the examples, the matrix and rows and columns under the same brand - we will keep this in mind
+
+```{r}
+
+# now we find the final cooccurrence
+
+result %>%
+  mutate(brand_key = paste(brand1, brand2, sep='-'),
+         brand_key = unname(
+           sapply(brand_key, function(x) {
+             paste(sort(trimws(strsplit(x[1],'-')[[1]])), collapse='-')
+           })
+          )
+         ) %>%
+  group_by(brand_key) %>%
+  summarize(count = sum(count, na.rm=TRUE)) -> cooccurrence
+
+print(cooccurrence)
+
+```
+
+## Calculate the Lift
+
+the assignment asks us to use P(A,B)/(P(A)*P(B)) - this is different than the slides!
+P(X) is the probability of occurrence of term X in a given review
+
+```{r}
+
+merged1 %>%
+  subset(select=c(review_text)) -> merged11
+
+nrow(merged11) -> total_rows
+
+# P(A)/P(B)
+brand <- c()
+p_a <- c()
+
+for (i in top30) {
+  
+  sum(str_count(merged11$review_text,i)) -> freq
+  
+  pa <- freq/total_rows
+  
+  brand <- append(brand, i)
+  p_a <- append(p_a,pa)
+}
+
+table1 <- cbind.data.frame(brand, p_a)
+
+
+```
+
+
+now we need P(A,B)/(P(A)*P(B)) - table1, cooccurrence
+
+```{r}
+
+brand1 <- c()
+brand2 <- c()
+denominator <- c()
+numerator <- count
+lift <- c()
+
+for (i in top30) {
+  for (j in top30) {
+    with(table1, p_a[brand==i]) -> pa
+    with(table1, p_a[brand==j]) -> pb
+    denom <- pa*pb
+    
+    brand1 <- append(brand1, i)
+    brand2 <- append(brand2, j)
+    denominator <- append(denominator, denom)
+  }
+}
+
+lift <- append(lift, numerator/denominator/total_rows)
+reciprocal <- 1/lift # find dissimilarity
+
+result2 <- cbind.data.frame(brand1, brand2, lift)
+print(result2)
+matrix2 <- pivot_wider(result2, id_cols = brand1, names_from = brand2, values_from = lift)
+write.xlsx(matrix2,"matrix2.xlsx", asTable = T)
+
+result3 <- cbind.data.frame(brand1, brand2, reciprocal)
+matrix3 <- pivot_wider(result3, id_cols = brand1, names_from = brand2, values_from = reciprocal)
+write.csv(matrix3, "matrix3.csv")
+```
+
+## MDS
+
+```{r}
+
+write.csv(matrix2, file = "matrix2.csv")
+
+tmp.df <- read.csv("matrix3.csv")
+tmp.df <- tmp.df[,-1]
+dat.df <- tmp.df[,-1]
+rownames(dat.df) <- tmp.df[,1]
+
+
+dat.df[is.na(dat.df)] <- 0
+dat.df[dat.df == Inf] <- 0
+
+dat.mat <- data.matrix(dat.df)
+dat.mds <- cmdscale(dat.mat, eig=TRUE, k=2) #MDS,k=2 means two-dimensional
+
+#save results in new dataset
+result.mds = data.frame(dat.mds$points)
+colnames(result.mds) = c("Coordinate1", "Coordinate2")
+
+# plot solution, with zoomed in version
+result.mds %>%
+  ggplot(aes(x=Coordinate1,y=Coordinate2)) +
+  labs(title="Software Brands MDS Perceptual Map (Lift) - 50000 feet") +
+  geom_text(label=row.names(result.mds))
+
+result.mds %>%
+  ggplot(aes(x=Coordinate1,y=Coordinate2)) +
+  labs(title="Software Brands MDS Perceptual Map (Lift) - 30000 feet") +
+  geom_label_repel(label=row.names(result.mds), label.size = 0.02, label.padding = 0.1, max.overlaps = 200) +
+  xlim(-100,100)
+
+result.mds %>%
+  ggplot(aes(x=Coordinate1,y=Coordinate2)) +
+  labs(title="Software Brands MDS Perceptual Map (Lift) - 10000 feet") +
+  geom_label_repel(label=row.names(result.mds), label.size = 0.02, label.padding = 0.1, max.overlaps = 200) +
+  xlim(-25,25)
+
+result.mds %>%
+  ggplot(aes(x=Coordinate1,y=Coordinate2)) +
+  labs(title="Software Brands MDS Perceptual Map (Lift) - 5000 feet pt 1") +
+  geom_label_repel(label=row.names(result.mds), label.size = 0.02, label.padding = 0.1, max.overlaps = 200) +
+  xlim(-5,5)
+
+result.mds %>%
+  ggplot(aes(x=Coordinate1,y=Coordinate2)) +
+  labs(title="Software Brands MDS Perceptual Map (Lift) - 5000 feet pt 2") +
+  geom_label_repel(label=row.names(result.mds), label.size = 0.02, label.padding = 0.1, max.overlaps = 200) +
+  xlim(0,3)
+```
