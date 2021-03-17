@@ -1,5 +1,5 @@
 ---
-title: "Group 17 Group assignment 2"
+title: "Group assignment 2"
 output:
   html_document:
     df_print: paged
